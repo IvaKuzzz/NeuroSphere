@@ -21,9 +21,20 @@ app.post('/api/chat', async (req, res) => {
     // Запрос к Hugging Face
     const aiResponse = await axios.post(
       'https://api-inference.huggingface.co/models/HuggingFaceH4/mistralai/Mistral-7B-v0.1',
-      { inputs: message },
-      { headers: { 'Authorization': `Bearer ${process.env.HF_TOKEN}` } }
-    );
+        {
+    inputs: message,
+    parameters: {
+      max_new_tokens: 250,  // Максимальное количество токенов в ответе
+      temperature: 0.7,     // "Креативность" ответа (0-1)
+    }
+  },
+  {
+    headers: { 
+      'Authorization': `Bearer ${process.env.HF_TOKEN}`,
+      'Content-Type': 'application/json' 
+    }
+  }
+);
     const reply = aiResponse.data[0].generated_text;
 
     // Сохраняем в Supabase
