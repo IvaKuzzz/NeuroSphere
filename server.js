@@ -20,7 +20,7 @@ app.post('/api/chat', async (req, res) => {
     
     // Запрос к Hugging Face
     const aiResponse = await axios.post(
-      'https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta',
+      'https://api-inference.huggingface.co/models/HuggingFaceH4/mistralai/Mistral-7B-v0.1',
       { inputs: message },
       { headers: { 'Authorization': `Bearer ${process.env.HF_TOKEN}` } }
     );
