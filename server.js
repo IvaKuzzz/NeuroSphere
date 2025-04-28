@@ -59,4 +59,7 @@ app.get('/api/chats/:user_id', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => {
+  res.send('NeuroSphere API работает! 🚀');
+});
 app.listen(PORT, () => console.log(`Сервер запущен на порту ${PORT}`));
