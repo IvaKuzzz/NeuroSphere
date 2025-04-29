@@ -8,6 +8,9 @@
   <style>
     .message-ai { background: #f3f4f6; }
     .message-user { background: #3b82f6; color: white; }
+    .dark .message-ai { background: #374151; color: white; }
+    .dark .message-user { background: #1e40af; }
+    
     .typing-animation::after {
       content: '...';
       animation: typing 1.5s infinite;
@@ -16,47 +19,105 @@
       0%, 100% { opacity: 0; }
       50% { opacity: 1; }
     }
+
+    .loading-dots::after {
+      content: '.';
+      animation: dots 1.5s infinite steps(3, end);
+    }
+    @keyframes dots {
+      0%, 20% { content: '.'; }
+      40% { content: '..'; }
+      60%, 100% { content: '...'; }
+    }
   </style>
 </head>
-<body class="bg-gray-50 h-screen flex flex-col">
+<body class="bg-gray-50 dark:bg-gray-900 h-screen flex flex-col transition-colors duration-200">
   <!-- Шапка -->
-  <header class="bg-gray-900 text-white p-4 shadow-md">
+  <header class="bg-gray-900 text-white p-4 shadow-md flex items-center">
     <h1 class="text-2xl font-bold">NeuroSphere</h1>
+    
+    <div class="ml-auto flex space-x-3">
+      <!-- Переключатель темы -->
+      <button id="themeToggle" class="p-2 rounded-full bg-gray-700 hover:bg-gray-600">
+        <span id="themeIcon">🌙</span>
+      </button>
+      
+      <!-- Выбор модели -->
+      <select id="modelSelect" class="bg-gray-700 text-white rounded px-3 py-1">
+        <option value="mistralai/Mistral-7B-v0.1">Mistral-7B</option>
+        <option value="HuggingFaceH4/zephyr-7b-beta">Zephyr-7B</option>
+        <option value="google/gemma-7b">Gemma-7B</option>
+      </select>
+    </div>
   </header>
 
-  <!-- Основной чат -->
-  <div class="flex-1 overflow-y-auto p-4 space-y-4" id="chatContainer">
-    <!-- Сообщения будут здесь -->
-  </div>
+  <!-- История чатов (сайдбар) -->
+  <div class="flex flex-1 overflow-hidden">
+    <div id="chatHistory" class="w-64 bg-gray-100 dark:bg-gray-800 p-3 overflow-y-auto hidden md:block">
+      <h3 class="font-bold mb-3 dark:text-white">История чатов</h3>
+      <div id="historyList" class="space-y-2">
+        <!-- Список чатов будет здесь -->
+      </div>
+    </div>
 
-  <!-- Поле ввода -->
-  <div class="p-4 border-t bg-white">
-    <div class="flex space-x-2">
-      <input 
-        id="messageInput" 
-        type="text" 
-        placeholder="Напишите сообщение..." 
-        class="flex-1 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-      >
-      <button 
-        id="sendButton" 
-        class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition"
-      >
-        Отправить
-      </button>
+    <!-- Основной чат -->
+    <div class="flex-1 flex flex-col">
+      <div id="chatContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
+        <!-- Сообщения будут здесь -->
+      </div>
+
+      <!-- Поле ввода -->
+      <div class="p-4 border-t bg-white dark:bg-gray-800">
+        <div class="flex space-x-2">
+          <div class="flex-1 relative">
+            <input 
+              id="messageInput" 
+              type="text" 
+              placeholder="Напишите сообщение..." 
+              class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+            <button 
+              id="voiceButton" 
+              class="absolute right-3 top-3 text-gray-500 hover:text-blue-500"
+              title="Голосовой ввод"
+            >
+              🎤
+            </button>
+          </div>
+          <button 
+            id="sendButton" 
+            class="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition dark:bg-blue-700 dark:hover:bg-blue-800"
+          >
+            Отправить
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
+    // Конфигурация
     const API_URL = 'https://neurosphere-08pk.onrender.com/api/chat';
     const chatContainer = document.getElementById('chatContainer');
     const messageInput = document.getElementById('messageInput');
+    const chatHistory = document.getElementById('chatHistory');
+    const historyList = document.getElementById('historyList');
+    let currentChatId = `chat_${Date.now()}`;
 
-    // Отправка сообщения
-    document.getElementById('sendButton').addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') sendMessage();
+    // Инициализация
+    document.addEventListener('DOMContentLoaded', () => {
+      loadTheme();
+      loadChatHistory();
+      
+      // Создаем первый чат, если нет истории
+      if (!localStorage.getItem('neurosphere_chats')) {
+        createNewChat();
+      }
     });
+
+    // ========================
+    // Основные функции чата
+    // ========================
 
     async function sendMessage() {
       const message = messageInput.value.trim();
@@ -64,34 +125,42 @@
 
       // Добавляем сообщение пользователя
       addMessage(message, 'user');
+      saveMessageToHistory(message, 'user');
       messageInput.value = '';
 
       // Показываем индикатор "печатает"
       const typingIndicator = document.createElement('div');
-      typingIndicator.className = 'typing-animation text-gray-500 italic';
+      typingIndicator.className = 'typing-animation text-gray-500 italic dark:text-gray-400';
       typingIndicator.textContent = 'NeuroSphere печатает';
       chatContainer.appendChild(typingIndicator);
       chatContainer.scrollTop = chatContainer.scrollHeight;
 
       try {
+        // Получаем выбранную модель
+        const model = document.getElementById('modelSelect').value;
+        
         // Отправляем на бэкенд
         const response = await fetch(API_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             message, 
-            user_id: 'user_' + Date.now() 
+            user_id: currentChatId,
+            model // Добавляем модель в запрос
           })
         });
+        
         const data = await response.json();
 
         // Убираем индикатор и показываем ответ
         chatContainer.removeChild(typingIndicator);
         addMessage(data.reply, 'ai');
+        saveMessageToHistory(data.reply, 'ai');
 
       } catch (error) {
         chatContainer.removeChild(typingIndicator);
         addMessage('Ошибка соединения с AI', 'error');
+        console.error('API Error:', error);
       }
     }
 
@@ -102,12 +171,165 @@
           ? 'message-user ml-auto' 
           : type === 'ai' 
             ? 'message-ai mr-auto' 
-            : 'bg-red-100 text-red-800'
+            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
       }`;
       messageDiv.textContent = text;
       chatContainer.appendChild(messageDiv);
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
+
+    // ========================
+    // История чатов
+    // ========================
+
+    function createNewChat() {
+      currentChatId = `chat_${Date.now()}`;
+      chatContainer.innerHTML = '';
+      
+      // Сохраняем новый чат в историю
+      const chats = JSON.parse(localStorage.getItem('neurosphere_chats') || '{}');
+      chats[currentChatId] = {
+        id: currentChatId,
+        title: 'Новый чат',
+        messages: [],
+        createdAt: new Date().toISOString()
+      };
+      localStorage.setItem('neurosphere_chats', JSON.stringify(chats));
+      
+      loadChatHistory();
+      addMessage('Привет! Я NeuroSphere. Чем могу помочь?', 'ai');
+    }
+
+    function saveMessageToHistory(text, type) {
+      const chats = JSON.parse(localStorage.getItem('neurosphere_chats') || '{}');
+      if (chats[currentChatId]) {
+        chats[currentChatId].messages.push({
+          text,
+          type,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Обновляем заголовок (первые 20 символов первого сообщения)
+        if (chats[currentChatId].messages.length === 1) {
+          chats[currentChatId].title = text.slice(0, 20) + (text.length > 20 ? '...' : '');
+        }
+        
+        localStorage.setItem('neurosphere_chats', JSON.stringify(chats));
+        loadChatHistory();
+      }
+    }
+
+    function loadChatHistory() {
+      const chats = JSON.parse(localStorage.getItem('neurosphere_chats') || '{}');
+      historyList.innerHTML = '';
+      
+      // Добавляем кнопку нового чата
+      const newChatBtn = document.createElement('button');
+      newChatBtn.className = 'w-full p-2 bg-blue-100 dark:bg-blue-900 rounded mb-3 text-left font-medium';
+      newChatBtn.textContent = '+ Новый чат';
+      newChatBtn.onclick = createNewChat;
+      historyList.appendChild(newChatBtn);
+      
+      // Сортируем чаты по дате (новые сверху)
+      Object.values(chats)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .forEach(chat => {
+          const chatEl = document.createElement('div');
+          chatEl.className = `p-2 rounded cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700 ${
+            chat.id === currentChatId ? 'bg-gray-300 dark:bg-gray-600' : ''
+          }`;
+          chatEl.innerHTML = `
+            <div class="font-medium truncate">${chat.title}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+              ${new Date(chat.createdAt).toLocaleString()}
+            </div>
+          `;
+          chatEl.onclick = () => loadChat(chat.id);
+          historyList.appendChild(chatEl);
+        });
+    }
+
+    function loadChat(chatId) {
+      const chats = JSON.parse(localStorage.getItem('neurosphere_chats') || '{}');
+      if (chats[chatId]) {
+        currentChatId = chatId;
+        chatContainer.innerHTML = '';
+        
+        // Загружаем сообщения
+        chats[chatId].messages.forEach(msg => {
+          addMessage(msg.text, msg.type);
+        });
+        
+        // Обновляем историю
+        loadChatHistory();
+      }
+    }
+
+    // ========================
+    // Темная тема
+    // ========================
+
+    function loadTheme() {
+      const isDark = localStorage.getItem('neurosphere_theme') === 'dark';
+      document.body.classList.toggle('dark', isDark);
+      document.getElementById('themeIcon').textContent = isDark ? '☀️' : '🌙';
+    }
+
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const isDark = document.body.classList.toggle('dark');
+      localStorage.setItem('neurosphere_theme', isDark ? 'dark' : 'light');
+      document.getElementById('themeIcon').textContent = isDark ? '☀️' : '🌙';
+    });
+
+    // ========================
+    // Голосовой ввод
+    // ========================
+
+    document.getElementById('voiceButton').addEventListener('click', () => {
+      if (!('webkitSpeechRecognition' in window)) {
+        alert('Голосовой ввод не поддерживается в вашем браузере');
+        return;
+      }
+
+      const recognition = new webkitSpeechRecognition();
+      recognition.lang = 'ru-RU';
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        messageInput.placeholder = 'Говорите...';
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        messageInput.value = transcript;
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Ошибка распознавания:', event.error);
+      };
+
+      recognition.onend = () => {
+        messageInput.placeholder = 'Напишите сообщение...';
+      };
+
+      recognition.start();
+    });
+
+    // ========================
+    // Обработчики событий
+    // ========================
+
+    document.getElementById('sendButton').addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    // Адаптивное меню (для мобильных)
+    window.addEventListener('resize', () => {
+      if (window.innerWidth < 768) {
+        chatHistory.classList.add('hidden');
+      }
+    });
   </script>
 </body>
 </html>
